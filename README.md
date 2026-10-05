@@ -4,7 +4,10 @@
 
 ## 已包含的功能
 
-- 158 筆初始車款／等級資料、9 個品牌；首次啟動寫入資料庫。
+- 158 筆現行初始車款／等級資料、9 個品牌，另加入歷年車款資料庫；收錄數量與年份見 [HISTORY.md](HISTORY.md)。首次啟動写入資料庫，既有資料庫也會加入歷年資料。
+- 支援歷年／較早經典車、年份、動力及英文車系／中文別名篩選。指南年度與車款目錄年式分開標記；未收錄年份可手動計算。
+- 歷年來源包括能源署官方油耗指南及 Yahoo 汽車台灣目錄，逐筆保留來源。媒體資料不標為原廠資料；未知值不猜測。
+- 馬力支援 PS、英制 hp、kW；原表只標 hp 且定義未確認時，需確認單位再比較。油電引擎馬力不代替系統綜效輸出。
 - 網頁每次載入都使用資料庫最新車款和油價；不是從網頁直接跨站抓官網。
 - 中油官方牌價每 6 小時取得一次，保留官方生效日和取得時間。
 - 已收錄車款的官方來源每 7 天檢查一次。Toyota、三菱、Hyundai 的規格頁，以及 Honda CR-V／FIT、Nissan SENTRA／KICKS 支援結構化更新。
@@ -29,7 +32,7 @@
 5. 預設 `PORT=8080`、`AUTO_UPDATE=true`、`OIL_INTERVAL_HOURS=6`、`VEHICLE_INTERVAL_HOURS=168`；可於服務設定修改。
 6. 加入網頁網域後，打開首頁確認可選車、帶入規格與試算，再開 `/status` 看更新紀錄。首次來源檢查在背景進行，可能需要數分鐘，期間首頁照常使用種子資料。
 
-資料庫由 PostgreSQL 服務保管。重新部署時不會覆蓋已有資料，只有空資料庫才初始化種子資料。
+資料庫由 PostgreSQL 服務保管。重新部署時保留既有現行車款與牌價；只有空資料庫才初始化現行種子。`seed/history.json` 為版本管理的歷年快照，每次啟動依固定 ID 匯入並替換上一版內建歷年資料，避免重複收錄。它不會覆蓋現行車款的官網更新結果。
 
 ### 不使用 PostgreSQL 的替代方式
 
@@ -42,6 +45,9 @@
 | `GET /health` | 健康檢查 |
 | `GET /api/vehicles` | 全部已存車款 |
 | `GET /api/vehicles?brand=Honda&q=CR-V` | 品牌與關鍵字檢索 |
+| `GET /api/vehicles?brand=Honda&year=2008&q=Accord` | 歷年 Accord 年份檢索 |
+| `GET /api/vehicles?scope=classic` | 較早車款；也支援 current、history |
+| `GET /api/vehicles?year_kind=model` | 車款目錄年式；guide 表示官方指南年度 |
 | `GET /api/rates` | 油價、生效日、來源與取得時間 |
 | `GET /api/status` | 更新狀態与最近 100 筆紀錄 |
 | `POST /api/update?kind=oil` | 更新油價；需 `Authorization: Bearer <ADMIN_TOKEN>` |
@@ -68,8 +74,10 @@ python app.py
 - Zeabur GitHub／資料庫服務：https://zeabur.com/docs/en-US/deploy/create/create-service
 - 中油資料來源：https://www.cpc.com.tw/GetOilPriceJson.aspx?type=TodayOilPriceString
 
-PDF 型錄保留官方連結與指紋，不把大型 PDF 打包進 repository。建議定期備份資料庫。GitHub 儲存庫： https://github.com/nlk12367/toyota1005 。Zeabur 服務尚未部署。
+PDF 型錄保留官方連結與指紋，不把大型 PDF 打包進 repository。建議定期備份資料庫。GitHub 儲存庫： https://github.com/nlk12367/toyota1005 。Zeabur 實際服務狀態請於部署後檢查 `/health` 及 `/status`。
 
 ## 驗證範圍
 
 已比對 34 份官方 HTML 規格頁、158 筆初始資料，並檢查 SQLite 持久儲存、搜尋 API、油價取得、更新失敗保留原資料與管理權限。PostgreSQL 實際連線及 Zeabur 雲端建置仍待部署後確認。
+
+歷年版本另驗證固定 ID 不重複、重複啟動匯入不增加紀錄、保留現行更新資料與牌價、歷年來源不進入現行官網更新排程、年式／經典車檢索，以及查無結果清空舊車資訊。Accord 可依年份搜尋並帶入計算；手機版亦保留手動輸入入口。

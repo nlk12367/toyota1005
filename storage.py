@@ -36,3 +36,14 @@ class Store:
         for name in ('vehicles','rates'):
             if self.get(name) is None:
                 self.put(name,json.loads((base/(name+'.json')).read_text(encoding='utf-8')))
+
+    def import_history(self):
+        """Merge versioned archival records into existing deployed databases."""
+        base=Path(__file__).parent/'seed'
+        file=base/'history.json'
+        if not file.exists():return
+        archive=json.loads(file.read_text(encoding='utf-8'))
+        incoming={x['id']:x for x in archive}
+        existing=self.get('vehicles',[])
+        kept=[x for x in existing if x.get('id') not in incoming and not str(x.get('id','')).startswith(('archive-gov-','archive-yahoo-'))]
+        self.put('vehicles',kept+archive)

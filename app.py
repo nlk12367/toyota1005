@@ -31,7 +31,8 @@ def refresh(kind='all'):
                 record_event('oil','更新失敗，保留上次牌價：'+str(e))
         if kind in ('all','vehicles'):
             vehicles=store.get('vehicles',[]);groups=defaultdict(list)
-            for item in vehicles:groups[item['source']].append(item)
+            for item in vehicles:
+                if not item.get('history'):groups[item['source']].append(item)
             state=store.get('sources',{})
             for url,existing in groups.items():
                 previous=state.get(url,{})
@@ -39,7 +40,7 @@ def refresh(kind='all'):
                     content=fetch(url);digest=hashlib.sha256(content).hexdigest()
                     parsed=None if content.startswith(b'%PDF') or '.pdf' in url.lower() else parse_vehicles(content,existing)
                     if parsed is not None:
-                        vehicles=[x for x in vehicles if x['source']!=url]+parsed
+                        vehicles=[x for x in vehicles if x.get('history') or x['source']!=url]+parsed
                         store.put('vehicles',vehicles)
                         entry=dict(status='updated',checked_at=now(),success_at=now(),hash=digest,count=len(parsed),brand=existing[0]['brand'])
                     else:
@@ -70,7 +71,7 @@ def schedule():
 
 def status():
     vehicles=store.get('vehicles',[]);sources=store.get('sources',{})
-    return dict(vehicle_count=len(vehicles),brand_count=len({x['brand'] for x in vehicles}),running=update_lock.locked(),automatic=os.getenv('AUTO_UPDATE','true').lower()=='true',oil=store.get('oil_job',{}),vehicles=store.get('vehicles_job',{}),sources=sources,events=store.get('events',[]),storage='PostgreSQL' if store.url else 'SQLite')
+    return dict(vehicle_count=len(vehicles),historical_count=sum(bool(x.get('history')) for x in vehicles),current_count=sum(not x.get('history') for x in vehicles),brand_count=len({x['brand'] for x in vehicles}),running=update_lock.locked(),automatic=os.getenv('AUTO_UPDATE','true').lower()=='true',oil=store.get('oil_job',{}),vehicles=store.get('vehicles_job',{}),sources=sources,events=store.get('events',[]),storage='PostgreSQL' if store.url else 'SQLite')
 
 def render_page():
     s=(BASE/'public/index.html').read_text(encoding='utf-8')
@@ -108,10 +109,14 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path=='/health':return self.send_json({'ok':True,'vehicles':len(store.get('vehicles',[]))})
         if u.path=='/api/vehicles':
             q=parse_qs(u.query);data=store.get('vehicles',[])
-            for field in ('brand','power'):
-                if q.get(field):data=[x for x in data if x[field]==q[field][0]]
+            for field in ('brand','power','year','year_kind'):
+                if q.get(field):data=[x for x in data if str(x.get(field,''))==q[field][0]]
+            scope=q.get('scope',[''])[0]
+            if scope=='current':data=[x for x in data if not x.get('history')]
+            elif scope=='history':data=[x for x in data if x.get('history') and not x.get('classic')]
+            elif scope=='classic':data=[x for x in data if x.get('classic')]
             if q.get('q'):
-                term=q['q'][0].lower();data=[x for x in data if term in (x['brand']+' '+x['model']+' '+x['variant']).lower()]
+                term=q['q'][0].lower();data=[x for x in data if term in (x['brand']+' '+x['model']+' '+x['variant']+' '+' '.join(x.get('aliases',[]))).lower()]
             return self.send_json({'count':len(data),'vehicles':data})
         if u.path=='/api/rates':return self.send_json(store.get('rates'))
         if u.path=='/api/status':return self.send_json(status())
@@ -139,7 +144,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main():
     global store
-    logging.basicConfig(level=logging.INFO);store=Store();store.seed()
+    logging.basicConfig(level=logging.INFO);store=Store();store.seed();store.import_history()
     if os.getenv('AUTO_UPDATE','true').lower()=='true':threading.Thread(target=schedule,daemon=True).start()
     server=ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','8080'))),Handler)
     try:server.serve_forever()
