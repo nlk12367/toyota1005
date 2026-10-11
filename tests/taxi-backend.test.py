@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(dir=scratch) as directory:
             assert '計程車營運版比較系統' in page
         with urllib.request.urlopen(base+'/taxi.js') as response:
             assert response.status==200 and b'TaxiModel' in response.read()
-        for asset in ['/liff-ui.js','/liff-ui.css','/formulas.js','/vendor/tex-svg.js','/vendor/leaflet.js','/vendor/leaflet.css','/vendor/taiwan-outline.js','/region-map.js','/google-map-config.js','/google-region-map.js']:
+        for asset in ['/taxi-config.js','/images/advisor-mascot.svg','/images/night-mountains.svg','/liff-ui.js','/liff-ui.css','/formulas.js','/vendor/tex-svg.js','/vendor/leaflet.js','/vendor/leaflet.css','/vendor/taiwan-outline.js','/region-map.js','/google-map-config.js','/google-region-map.js']:
             with urllib.request.urlopen(base+asset) as response: assert response.status==200 and len(response.read())>0
         with urllib.request.urlopen(base+'/health') as response:
             assert json.load(response)['ok']
