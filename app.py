@@ -105,6 +105,12 @@ class Handler(SimpleHTTPRequestHandler):
         b=s.encode();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
     def do_GET(self):
         u=urlsplit(self.path)
+        if u.path=='/google-map-config.js':
+            config={'apiKey':os.getenv('GOOGLE_MAPS_API_KEY',''),'mapId':os.getenv('GOOGLE_MAPS_MAP_ID','')}
+            body=('window.GOOGLE_MAPS_CONFIG='+json.dumps(config)+';').encode('utf-8')
+            self.send_response(200);self.send_header('Content-Type','application/javascript; charset=utf-8')
+            self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)))
+            self.end_headers();self.wfile.write(body);return
         if u.path in ('/','/index.html'):return self.send_html(render_page())
         if u.path=='/health':return self.send_json({'ok':True,'vehicles':len(store.get('vehicles',[]))})
         if u.path=='/api/vehicles':
@@ -123,7 +129,7 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path=='/status':
             return self.send_html('''<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>資料更新紀錄</title><style>body{font:16px system-ui;max-width:1000px;margin:30px auto;padding:20px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f5f4;padding:20px}a{color:#264e36}</style><a href="/">回到換車比較</a><h1>資料更新紀錄</h1><p>updated：已更新規格；monitored：僅監測來源；review_required：來源有變更，沿用舊規格；error：取得或解析失敗，沿用舊資料。</p><pre id="result">正在讀取…</pre><script>fetch('/api/status').then(r=>{if(!r.ok)throw Error();return r.json()}).then(x=>document.getElementById('result').textContent=JSON.stringify(x,null,2)).catch(()=>document.getElementById('result').textContent='無法取得更新紀錄，請稍後重試。');</script></html>''')
         if u.path.startswith('/api/'):return self.send_json({'error':'Not found'},404)
-        if u.path not in ('/favicon.ico',) and not u.path.startswith('/images/'):return self.send_error(404)
+        if u.path not in ('/favicon.ico','/taxi.js','/liff-ui.js','/liff-ui.css','/formulas.js','/vendor/tex-svg.js','/vendor/leaflet.js','/vendor/leaflet.css','/vendor/taiwan-outline.js','/region-map.js','/google-map-config.js','/google-region-map.js') and not u.path.startswith('/images/'):return self.send_error(404)
         # Restrict static requests to known image files; no source, seed, or database exposure.
         file=(BASE/'public'/u.path.lstrip('/')).resolve()
         if BASE.joinpath('public').resolve() not in file.parents:return self.send_error(404)
