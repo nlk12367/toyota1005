@@ -1,9 +1,11 @@
-import json, os, sqlite3
+import json, os, sqlite3, threading
 from contextlib import contextmanager
 from pathlib import Path
 
 class Store:
     def __init__(self):
+        self._vehicles_cache=None
+        self._vehicles_cache_lock=threading.RLock()
         self.url=os.getenv('DATABASE_URL','')
         if not self.url:
             self.path=Path(os.getenv('DATA_DIR','data'))/'vehicles.sqlite3'
@@ -24,13 +26,27 @@ class Store:
             raise
         finally:con.close()
     def get(self,key,default=None):
+        if key=='vehicles':
+            with self._vehicles_cache_lock:
+                if self._vehicles_cache is not None:return self._vehicles_cache
+                with self.connect() as con:
+                    row=con.execute('SELECT value FROM app_state WHERE key='+('%s' if self.url else '?'),(key,)).fetchone()
+                self._vehicles_cache=json.loads(row[0]) if row else default
+                return self._vehicles_cache
         with self.connect() as con:
             row=con.execute('SELECT value FROM app_state WHERE key='+('%s' if self.url else '?'),(key,)).fetchone()
             return json.loads(row[0]) if row else default
     def put(self,key,value):
         marks='%s,%s' if self.url else '?,?'
+        serialized=json.dumps(value,ensure_ascii=False)
+        if key=='vehicles':
+            with self._vehicles_cache_lock:
+                with self.connect() as con:
+                    con.execute('INSERT INTO app_state (key,value) VALUES ('+marks+') ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,serialized))
+                self._vehicles_cache=value
+            return
         with self.connect() as con:
-            con.execute('INSERT INTO app_state (key,value) VALUES ('+marks+') ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,json.dumps(value,ensure_ascii=False)))
+            con.execute('INSERT INTO app_state (key,value) VALUES ('+marks+') ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,serialized))
     def seed(self):
         base=Path(__file__).parent/'seed'
         for name in ('vehicles','rates'):

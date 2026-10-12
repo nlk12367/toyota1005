@@ -73,10 +73,22 @@ def status():
     vehicles=store.get('vehicles',[]);sources=store.get('sources',{})
     return dict(vehicle_count=len(vehicles),historical_count=sum(bool(x.get('history')) for x in vehicles),current_count=sum(not x.get('history') for x in vehicles),brand_count=len({x['brand'] for x in vehicles}),running=update_lock.locked(),automatic=os.getenv('AUTO_UPDATE','true').lower()=='true',oil=store.get('oil_job',{}),vehicles=store.get('vehicles_job',{}),sources=sources,events=store.get('events',[]),storage='PostgreSQL' if store.url else 'SQLite')
 
+VEHICLE_SUMMARY_FIELDS=('id','brand','model','variant','power','year','history','classic','aliases','hp','raw_hp','eff','source','date','status','year_kind','grade','hp_reference')
+
+def vehicle_summaries(vehicles, all_vehicles=None):
+    """Return picker fields without large specification tables."""
+    source=all_vehicles if all_vehicles is not None else vehicles
+    positions={id(vehicle):index for index,vehicle in enumerate(source)}
+    return [{**{key:vehicle[key] for key in VEHICLE_SUMMARY_FIELDS if key in vehicle},'ref':positions[id(vehicle)]}
+            for vehicle in vehicles]
+
+
 def render_page():
     s=(BASE/'public/index.html').read_text(encoding='utf-8')
-    vehicles=store.get('vehicles',[]);rates=store.get('rates',{})
-    payload=json.dumps(vehicles,ensure_ascii=False,separators=(',',':')).replace('<','\\u003c')
+    all_vehicles=store.get('vehicles',[])
+    vehicles=[vehicle for vehicle in all_vehicles if not vehicle.get('history')]
+    rates=store.get('rates',{})
+    payload=json.dumps(vehicle_summaries(vehicles,all_vehicles),ensure_ascii=False,separators=(',',':')).replace('<','\\u003c')
     s=re.sub(r'(<script id="vehicleData" type="application/json">).*?(</script>)',lambda m:m[1]+payload+m[2],s,flags=re.S)
     prices=json.dumps(rates['prices'],separators=(',',':'))
     s=re.sub(r"prices=\{[^}]+\},rates=",lambda m:'prices='+prices+',rates=',s,count=1)
@@ -99,6 +111,10 @@ def render_page():
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*args,**kwargs):super().__init__(*args,directory=str(BASE/'public'),**kwargs)
+    def end_headers(self):
+        if not any(header.lower().startswith(b'cache-control:') for header in self._headers_buffer):
+            self.send_header('Cache-Control','no-cache')
+        super().end_headers()
     def send_json(self,payload,code=200):
         b=json.dumps(payload,ensure_ascii=False).encode();self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
     def send_html(self,s):
@@ -113,8 +129,14 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers();self.wfile.write(body);return
         if u.path in ('/','/index.html'):return self.send_html(render_page())
         if u.path=='/health':return self.send_json({'ok':True,'vehicles':len(store.get('vehicles',[]))})
+        if u.path=='/api/vehicle-detail':
+            try:ref=int(parse_qs(u.query).get('ref',[''])[0])
+            except (TypeError,ValueError):return self.send_json({'error':'Invalid vehicle reference'},400)
+            vehicles=store.get('vehicles',[])
+            if ref<0 or ref>=len(vehicles):return self.send_json({'error':'Vehicle not found'},404)
+            return self.send_json(vehicles[ref])
         if u.path=='/api/vehicles':
-            q=parse_qs(u.query);data=store.get('vehicles',[])
+            q=parse_qs(u.query);all_vehicles=store.get('vehicles',[]);data=all_vehicles
             for field in ('brand','power','year','year_kind'):
                 if q.get(field):data=[x for x in data if str(x.get(field,''))==q[field][0]]
             scope=q.get('scope',[''])[0]
@@ -123,6 +145,8 @@ class Handler(SimpleHTTPRequestHandler):
             elif scope=='classic':data=[x for x in data if x.get('classic')]
             if q.get('q'):
                 term=q['q'][0].lower();data=[x for x in data if term in (x['brand']+' '+x['model']+' '+x['variant']+' '+' '.join(x.get('aliases',[]))).lower()]
+            if q.get('summary',[''])[0]=='1':
+                return self.send_json({'count':len(data),'vehicles':vehicle_summaries(data,all_vehicles)})
             return self.send_json({'count':len(data),'vehicles':data})
         if u.path=='/api/rates':return self.send_json(store.get('rates'))
         if u.path=='/api/status':return self.send_json(status())
