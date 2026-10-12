@@ -109,4 +109,6 @@ const energyPanel=[...results.children].find(el=>el.querySelector('h2')?.textCon
 document.addEventListener('taxi:render',update);
 form.addEventListener('input',update);form.addEventListener('change',update);$('loadCar').addEventListener('click',()=>{show(0);update();});form.addEventListener('reset',()=>setTimeout(()=>{applyDefaults();customCar.open=false;syncPower();show(0);update();document.dispatchEvent(new CustomEvent('regions:change'));},0));
 update();show(0,false);
+// Reveal the app only after the legacy markup has been transformed into the LIFF wizard.
+document.body.classList.remove('app-boot');
 })();

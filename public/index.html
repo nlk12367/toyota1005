@@ -15,8 +15,18 @@ select{width:100%;min-width:0;border:1px solid #4a584e;border-radius:9px;padding
 [hidden]{display:none!important}.inputs{position:static!important}.taxi-question{margin:18px 0;padding:14px 0;border:0;border-top:1px solid var(--line);min-width:0}.taxi-question legend{font-size:16px;font-weight:700;color:var(--accent);padding-right:8px}.taxi-costs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.taxi-costs strong{font-size:20px;overflow-wrap:anywhere}.formula{font-size:12px;overflow-wrap:anywhere}.timeline{padding-left:22px}.timeline li{padding:8px 0}.taxi-results{scroll-margin-top:12px}.taxi-results h2{font-size:21px}input,select,button,summary{min-height:44px}input[aria-invalid=true]{outline:2px solid #ffb7a7}#catalog{padding-top:20px}#taxiAdvanced .fields{margin-bottom:18px}@media(max-width:720px){.taxi-costs{grid-template-columns:1fr}.hero .car{display:none}.taxi-results .panel{padding:18px}.taxi-costs .cost{padding:12px}.specs{margin-bottom:18px}} .trip-saving{display:block;font-size:clamp(23px,4vw,32px);line-height:1.4}.taxi-results .taxi-costs{margin-top:14px}.formula-details,.result-notes{margin-top:10px;padding-top:8px}.formula-details summary,.result-notes summary{margin-bottom:0}.taxi-results .formula-details .note{margin:8px 0} </style>
 <link rel="stylesheet" href="./vendor/leaflet.css">
 <link rel="stylesheet" href="./liff-ui.css">
+<style>
+body.app-boot> :not(#appBootSplash){visibility:hidden}
+#appBootSplash{position:fixed;inset:0;z-index:9999;display:none;place-content:center;justify-items:center;gap:14px;background:radial-gradient(ellipse at 50% 20%,#301c1a,#0b0909 70%);color:#fff4ee;text-align:center;font:600 17px/1.5 system-ui,-apple-system,"Microsoft JhengHei",sans-serif}
+body.app-boot #appBootSplash{display:grid}
+#appBootSplash small{font-size:12px;font-weight:400;color:#bca9a1}
+#appBootSplash:before{content:"";width:26px;height:26px;border:2px solid #ffffff22;border-top-color:#e60012;border-radius:50%;animation:appBootSpin .8s linear infinite}
+@keyframes appBootSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#appBootSplash:before{animation:none;border-color:#e60012}}
+</style>
 </head>
-<body>
+<body class="app-boot">
+<div id="appBootSplash" role="status" aria-live="polite"><span>油轉電顧問</span><small>正在載入試算工具</small></div>
 <header><nav class="wrap" aria-label="主導覽"><a class="brand" href="#"><span>bZ4X</span> 計程車營運比較</a><div class="navlinks"><a href="#catalog">車款資料庫</a><a href="#calculator">營運試算</a><a href="#taxiResults">比較結果</a><a href="#taxiAdvanced">進階設定</a></div></nav></header>
 <main class="wrap">
 <section class="hero" aria-labelledby="title"><div><div class="eyebrow">自有車全職司機｜三車同條件比較</div><h1 id="title">換車後，<br><span>每月營運負擔差多少？</span></h1><p>現有車、油電、bZ4X：每月省多少？這一趟又省多少？</p></div><div class="car"><img src="./images/bz4x-official.png" alt="Toyota bZ4X 灰色休旅車側面" width="800" height="400"><small>Toyota 台灣官方車圖</small></div></section>
@@ -69,20 +79,20 @@ $('loadCar').addEventListener('click',()=>{const c=pick.selectedIndex<0?null:dat
 $('useHpReference').addEventListener('click',()=>{const ref=JSON.parse($('useHpReference').dataset.reference||'null');if(!ref)return;$('hp').value=ref.value;$('hpUnit').value=ref.unit;$('hpHelp').textContent='已依你確認的 '+ref.label+' 帶入 '+ref.definition+'；比較結果會換算為 PS。';$('hp').dispatchEvent(new Event('input',{bubbles:true}));});
 ['brandFilter','powerFilter','searchCar','yearFilter'].forEach(id=>$(id).addEventListener('input',filter));['brandFilter','powerFilter','yearFilter'].forEach(id=>$(id).addEventListener('change',filter));let scopeRequest=0;$('scopeFilter').addEventListener('change',async()=>{const request=++scopeRequest,scope=$('scopeFilter').value;if(scope==='current'){data=currentData;filter();return;}$('catalogCount').textContent='正在載入車款資料…';try{const query=scope?'?scope='+encodeURIComponent(scope)+'&summary=1':'?summary=1';const response=await fetch('/api/vehicles'+query);if(!response.ok)throw new Error('vehicle list unavailable');const result=await response.json();if(request!==scopeRequest)return;data=result.vehicles||[];filter();}catch(error){if(request!==scopeRequest)return;$('catalogCount').textContent='車款資料暫時無法載入，請稍後重試。';}});pick.addEventListener('change',show);$('currentType').addEventListener('change',()=>{if($('currentType').value==='diesel'){$('grade').value='diesel';$('grade').dispatchEvent(new Event('change'));}else{$('fuel').value='';$('grade').value='manual';}types();});$('carName').addEventListener('input',e=>{if(e.isTrusted){$('hpReference').hidden=true;$('useHpReference').dataset.reference='null';$('loadedVehicle').textContent='目前填寫車款：'+$('carName').value;}types();});$('form').addEventListener('reset',()=>setTimeout(types,0));
 $('downloadData').addEventListener('click',async()=>{const quote=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const rows=[['品牌','車系','版本','動力','規配項目（保留原單位）','來源值','來源','查核日期','收錄狀態']];let exportVehicles;try{const response=await fetch('/api/vehicles');if(!response.ok)throw new Error('vehicle export unavailable');exportVehicles=(await response.json()).vehicles;}catch(error){$('loadNote').textContent='規格資料暫時無法下載，請稍後重試。';return;}exportVehicles.forEach(c=>c.specs.forEach(([k,v])=>rows.push([c.brand,c.model,c.variant,c.power,k,v,c.source,c.date,c.status])));const blob=new Blob(['\uFEFF'+rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='台灣多品牌車款規配-20261005.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});filter();types();})();</script>
-<noscript><p class="panel">請啟用 JavaScript 才能使用本機計程車營運比較。輸入不會上傳。</p></noscript>
+<noscript><style>body.app-boot> :not(#appBootSplash){visibility:visible}#appBootSplash{display:none}</style><p class="panel">請啟用 JavaScript 才能使用本機計程車營運比較。輸入不會上傳。</p></noscript>
 
 
-<script src="./taxi-config.js"></script>
-<script src="https://static.line-scdn.net/liff/edge/2/sdk.js" charset="utf-8"></script>
-<script src="./liff-init.js"></script>
-<script src="./taxi.js"></script>
-<script src="./vendor/leaflet.js"></script>
-<script src="./vendor/taiwan-outline.js"></script>
-<script src="./liff-ui.js"></script>
-<script src="./region-map.js"></script>
-<script src="./google-map-config.js"></script>
-<script src="./google-region-map.js"></script>
-<script src="./formulas.js"></script>
+<script defer src="./taxi-config.js"></script>
+<script defer src="./taxi.js"></script>
+<script defer src="./vendor/leaflet.js"></script>
+<script defer src="./vendor/taiwan-outline.js"></script>
+<script defer src="./liff-ui.js"></script>
+<script defer src="./region-map.js"></script>
+<script defer src="./google-map-config.js"></script>
+<script defer src="./google-region-map.js"></script>
+<script defer src="./formulas.js"></script>
+<script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js" charset="utf-8"></script>
+<script defer src="./liff-init.js"></script>
 </body>
 </html>
 
