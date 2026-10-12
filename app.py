@@ -4,7 +4,7 @@ from datetime import datetime
 from http.server import SimpleHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
-from collectors import fetch,parse_vehicles,oil_prices,now
+from collectors import fetch,parse_vehicles,oil_prices,electricity_prices,now
 from storage import Store
 
 BASE=Path(__file__).parent
@@ -29,6 +29,14 @@ def refresh(kind='all'):
             except Exception as e:
                 store.put('oil_job',dict(attempt=now(),ok=False,error=str(e)))
                 record_event('oil','更新失敗，保留上次牌價：'+str(e))
+        if kind in ('all','electricity'):
+            try:
+                rates=electricity_prices();store.put('electricity_rates',rates)
+                store.put('electricity_job',dict(attempt=now(),ok=True,effective_date=rates['effective_date']))
+                record_event('electricity','台電住宅與電動車充換電設施費率檢查成功')
+            except Exception as e:
+                store.put('electricity_job',dict(attempt=now(),ok=False,error=str(e)))
+                record_event('electricity','電價更新失敗，保留上次費率：'+str(e))
         if kind in ('all','vehicles'):
             vehicles=store.get('vehicles',[]);groups=defaultdict(list)
             for item in vehicles:
@@ -57,21 +65,27 @@ def refresh(kind='all'):
     finally:update_lock.release()
 
 def due(key,hours):
-    stamp=store.get(key,{}).get('attempt')
+    state=store.get(key,{})
+    stamp=state.get('attempt')
     if not stamp:return True
-    return time.time()-datetime.fromisoformat(stamp).timestamp()>=hours*3600
+    interval=hours
+    if key=='electricity_job' and state.get('ok') is False:
+        interval=min(hours,max(1,float(os.getenv('UPDATE_RETRY_HOURS','6'))))
+    return time.time()-datetime.fromisoformat(stamp).timestamp()>=interval*3600
 def schedule():
     while not stop.is_set():
         try:
-            oil=due('oil_job',max(1,float(os.getenv('OIL_INTERVAL_HOURS','6'))))
-            cars=due('vehicles_job',max(1,float(os.getenv('VEHICLE_INTERVAL_HOURS','168'))))
-            if oil or cars:refresh('all' if oil and cars else 'oil' if oil else 'vehicles')
+            due_jobs=[]
+            if due('oil_job',max(1,float(os.getenv('OIL_INTERVAL_HOURS','6')))):due_jobs.append('oil')
+            if due('electricity_job',max(1,float(os.getenv('ELECTRICITY_INTERVAL_HOURS','168')))):due_jobs.append('electricity')
+            if due('vehicles_job',max(1,float(os.getenv('VEHICLE_INTERVAL_HOURS','168')))):due_jobs.append('vehicles')
+            for kind in due_jobs:refresh(kind)
         except Exception:log.exception('Scheduled update failed')
         stop.wait(60)
 
 def status():
     vehicles=store.get('vehicles',[]);sources=store.get('sources',{})
-    return dict(vehicle_count=len(vehicles),historical_count=sum(bool(x.get('history')) for x in vehicles),current_count=sum(not x.get('history') for x in vehicles),brand_count=len({x['brand'] for x in vehicles}),running=update_lock.locked(),automatic=os.getenv('AUTO_UPDATE','true').lower()=='true',oil=store.get('oil_job',{}),vehicles=store.get('vehicles_job',{}),sources=sources,events=store.get('events',[]),storage='PostgreSQL' if store.url else 'SQLite')
+    return dict(vehicle_count=len(vehicles),historical_count=sum(bool(x.get('history')) for x in vehicles),current_count=sum(not x.get('history') for x in vehicles),brand_count=len({x['brand'] for x in vehicles}),running=update_lock.locked(),automatic=os.getenv('AUTO_UPDATE','true').lower()=='true',oil=store.get('oil_job',{}),electricity=store.get('electricity_job',{}),vehicles=store.get('vehicles_job',{}),sources=sources,events=store.get('events',[]),storage='PostgreSQL' if store.url else 'SQLite')
 
 VEHICLE_SUMMARY_FIELDS=('id','brand','model','variant','power','year','history','classic','aliases','hp','raw_hp','eff','source','date','status','year_kind','grade','hp_reference')
 
@@ -99,10 +113,14 @@ def render_page():
     s=s.replace('2026/10/05 生效快照，非即時連線；站點優惠另計。',effective+' 生效；站點優惠另計。')
     s=s.replace('請依原車手冊確認油種；牌價採 2026/10/05 快照。','請依車主手冊確認油種；目前牌價生效日：'+effective+'。')
     s=s.replace('油價採中油 2026/10/05 牌價；','油價由中油資料定期更新；')
-    s=s.replace('離線資料不會自動更新。','車款規格依各筆標示的整理日期；電價目前仍為固定資料。')
+    s=s.replace('離線資料不會自動更新。','車款規格依各筆標示的整理日期；中油牌價與台電住宅電價由服務定期檢查。')
     s=re.sub(r'9 個品牌、158 種車款',str(len({x['brand'] for x in vehicles}))+' 個品牌、'+str(len(vehicles))+' 種車款',s)
     pending=sum(x.get('status')=='review_required' for x in store.get('sources',{}).values())
-    text='油價生效日：'+effective+'｜最近取得資料：'+checked+'。車款資料依各筆日期顯示。'
+    electricity=store.get('electricity_rates',{});electricity_job=store.get('electricity_job',{})
+    electricity_note=('台電電價表生效日：'+str(electricity.get('effective_date'))+'｜最近檢查：'+str(electricity.get('checked_at'))+'。'
+                      if electricity else '台電電價表尚未載入。')
+    if electricity_job.get('ok') is False:electricity_note+=' 最近更新失敗，保留上次資料。'
+    text='中油油價生效日：'+effective+'｜最近取得資料：'+checked+'。'+electricity_note+'車款資料依各筆日期顯示。'
     if pending:text+=' 有 '+str(pending)+' 個來源更新待確認，暫沿用上一筆規格。'
     import html
     banner='<aside class="panel" style="margin:20px 0;padding:18px" aria-label="資料更新狀態"><strong>資料更新狀態</strong><p class="note">'+html.escape(text)+'</p><a href="/status">查看更新紀錄</a></aside>'
@@ -149,6 +167,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json({'count':len(data),'vehicles':vehicle_summaries(data,all_vehicles)})
             return self.send_json({'count':len(data),'vehicles':data})
         if u.path=='/api/rates':return self.send_json(store.get('rates'))
+        if u.path=='/api/electricity-rates':return self.send_json(store.get('electricity_rates',{}))
         if u.path=='/api/status':return self.send_json(status())
         if u.path=='/status':
             return self.send_html('''<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>資料更新紀錄</title><style>body{font:16px system-ui;max-width:1000px;margin:30px auto;padding:20px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f5f4;padding:20px}a{color:#264e36}</style><a href="/">回到換車比較</a><h1>資料更新紀錄</h1><p>updated：已更新規格；monitored：僅監測來源；review_required：來源有變更，沿用舊規格；error：取得或解析失敗，沿用舊資料。</p><pre id="result">正在讀取…</pre><script>fetch('/api/status').then(r=>{if(!r.ok)throw Error();return r.json()}).then(x=>document.getElementById('result').textContent=JSON.stringify(x,null,2)).catch(()=>document.getElementById('result').textContent='無法取得更新紀錄，請稍後重試。');</script></html>''')
@@ -168,7 +187,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not token or not hmac.compare_digest(auth,'Bearer '+token):return self.send_json({'error':'Unauthorized'},401)
         if update_lock.locked():return self.send_json({'error':'Update already running'},409)
         kind=parse_qs(urlsplit(self.path).query).get('kind',['all'])[0]
-        if kind not in ('all','oil','vehicles'):return self.send_json({'error':'Unsupported update kind'},400)
+        if kind not in ('all','oil','electricity','vehicles'):return self.send_json({'error':'Unsupported update kind'},400)
         threading.Thread(target=refresh,args=(kind,),daemon=True).start()
         return self.send_json({'accepted':True,'kind':kind},202)
 

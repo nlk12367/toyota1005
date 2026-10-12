@@ -14,12 +14,13 @@
 - 馬力支援 PS、英制 hp、kW；原表只標 hp 且定義未確認時，需確認單位再比較。油電引擎馬力不代替系統綜效輸出。
 - 網頁每次載入都使用資料庫最新車款和油價；不是從網頁直接跨站抓官網。
 - 中油官方牌價每 6 小時取得一次，保留官方生效日和取得時間。
+- 台電官方住宅級距與電動車充換電設施費率每 7 天檢查一次；失敗時保留上次資料，並於 6 小時後重試。資料取自[台電公開 JSON 費率表](https://service.taipower.com.tw/data/opendata/apply/file/d007008/001.json)；充換電費率的適用限制參考[台電電動車充換電設施電價說明](https://www.taipower.com.tw/media/jx3fpc3g/電動車充換電設施電價.pdf)。家充可選填家中月用電量，按住宅累進級距推估本車新增用電的有效單價；公共快充仍須依業者實付價格填寫。
 - 已收錄車款的官方來源每 7 天檢查一次。Toyota、三菱、Hyundai 的規格頁，以及 Honda CR-V／FIT、Nissan SENTRA／KICKS 支援結構化更新。
 - 型錄 PDF（Ford、Mazda、Kia）與 Tesla 頁面目前監測來源變動。首次成功取得建立指紋；後續內容有變更則標為 `review_required`，保留原規格。這些來源尚未支援全自動規格解析。
 - 原廠未明示的綜效 PS 不自行相加。解析失敗、規格缺漏或大量版本消失時保留前一筆資料。
 - `/status` 可查看公開更新紀錄；受管理金鑰保護的 API 可手動觸發更新。
 
-**自動更新範圍是已收錄的來源。** 同一規格頁新增等級可以被收錄；品牌推出全新車系或更換規格頁網址，需要新增來源與適配解析器。電價目前仍採既有固定資料，沒有自動更新。文件的原始年式不能由查核日期推定。
+**自動更新範圍是已收錄的來源。** 同一規格頁新增等級可以被收錄；品牌推出全新車系或更換規格頁網址，需要新增來源與適配解析器。台電公布的電動車充換電設施費率有契約與用電時段條件，不代表公共充電站零售價；公共快充和車隊價格由使用者填入。文件的原始年式不能由查核日期推定。
 
 ## 放到 GitHub
 
@@ -33,7 +34,7 @@
 2. 在同一專案加入 PostgreSQL 服務。
 3. 在網頁服務設定環境變數 `DATABASE_URL`，使用 PostgreSQL 服務提供的連線字串／變數參照。不要把實際字串放到 GitHub。
 4. 設定 `ADMIN_TOKEN` 為至少 32 個隨機字元。未設定時，手動更新 API 會拒絕存取；自動排程仍可運作。
-5. 預設 `PORT=8080`、`AUTO_UPDATE=true`、`OIL_INTERVAL_HOURS=6`、`VEHICLE_INTERVAL_HOURS=168`；可於服務設定修改。
+5. 預設 `PORT=8080`、`AUTO_UPDATE=true`、`OIL_INTERVAL_HOURS=6`、`ELECTRICITY_INTERVAL_HOURS=168`、`UPDATE_RETRY_HOURS=6`、`VEHICLE_INTERVAL_HOURS=168`；可於服務設定修改。
 6. 加入網頁網域後，打開首頁確認可選車、帶入規格與試算，再開 `/status` 看更新紀錄。首次來源檢查在背景進行，可能需要數分鐘，期間首頁照常使用種子資料。
 
 資料庫由 PostgreSQL 服務保管。重新部署時保留既有現行車款與牌價；只有空資料庫才初始化現行種子。`seed/history.json` 為版本管理的歷年快照，每次啟動依固定 ID 匯入並替換上一版內建歷年資料，避免重複收錄。它不會覆蓋現行車款的官網更新結果。
@@ -53,10 +54,12 @@
 | `GET /api/vehicles?scope=classic` | 較早車款；也支援 current、history |
 | `GET /api/vehicles?year_kind=model` | 車款目錄年式；guide 表示官方指南年度 |
 | `GET /api/rates` | 油價、生效日、來源與取得時間 |
+| `GET /api/electricity-rates` | 台電住宅級距與充換電設施費率、生效日、檢查時間 |
 | `GET /api/status` | 更新狀態与最近 100 筆紀錄 |
 | `POST /api/update?kind=oil` | 更新油價；需 `Authorization: Bearer <ADMIN_TOKEN>` |
 | `POST /api/update?kind=vehicles` | 檢查車款來源；需管理金鑰 |
-| `POST /api/update?kind=all` | 更新油價與車款來源；需管理金鑰 |
+| `POST /api/update?kind=electricity` | 更新台電住宅與充換電設施費率；需管理金鑰 |
+| `POST /api/update?kind=all` | 更新油價、台電電價與車款來源；需管理金鑰 |
 
 金鑰只供管理端使用，不要放入網頁程式。更新請求成功接收後回傳 202；查看 `/status` 確認完成情況。
 

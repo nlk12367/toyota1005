@@ -8,6 +8,7 @@ from urllib.request import Request,urlopen
 from html.parser import HTMLParser
 
 OIL_URL='https://www.cpc.com.tw/GetOilPriceJson.aspx?type=TodayOilPriceString'
+ELECTRICITY_URL='https://service.taipower.com.tw/data/opendata/apply/file/d007008/001.json'
 def now(): return datetime.now(ZoneInfo('Asia/Taipei')).isoformat(timespec='seconds')
 def fetch(url):
     with urlopen(Request(url,headers={'User-Agent':'VehicleComparison/1.0 (+official-specification-monitor)','Accept':'text/html,application/json,application/pdf'}),timeout=30) as r:
@@ -135,3 +136,45 @@ def oil_prices():
     if not all(1<v<100 for v in prices.values()):raise ValueError('Oil prices out of range')
     if not prices['92']<=prices['95']<=prices['98']:raise ValueError('Oil grade prices inconsistent')
     return dict(prices=prices,source=OIL_URL,effective_label=payload['PriceUpdate'],checked_at=now())
+
+def parse_electricity_prices(content):
+    """Validate Taipower's public tariff JSON before replacing saved rates."""
+    payload=json.loads(content.decode('utf-8-sig'))
+    metadata=payload['metadata'];data=payload['data']
+    effective_date=metadata['實施日期']
+    if not re.fullmatch(r'20\d{2}-\d{2}-\d{2}',str(effective_date)):
+        raise ValueError('Taipower tariff effective date is invalid')
+    household=data['表燈非時間電價']['住宅用']
+    brackets=[('120度以下部分',120),('121~330度部分',330),('331~500度部分',500),('501~700度部分',700),('701~1000度部分',1000),('1001度以上部分',None)]
+    residential={}
+    for season,official in [('summer','夏月'),('non_summer','非夏月')]:
+        tiers=[]
+        for label,limit in brackets:
+            rate=float(household[label][official]['單價'])
+            if not 0<rate<100:raise ValueError('Taipower household rate outside supported range')
+            tiers.append({'limit':limit,'rate':rate})
+        if any(a['rate']>b['rate'] for a,b in zip(tiers,tiers[1:])):
+            raise ValueError('Taipower household tiers are inconsistent')
+        residential[season]=tiers
+    facility=data['電動車充換電設施電價']['流動電費']
+    weekday=facility['週一至週五'];weekend=facility['週六、週日及離峰日']['離峰時間']
+    ev_facility={
+        'weekday_peak_summer':float(weekday['尖峰時間']['夏月']['單價']),
+        'weekday_peak_non_summer':float(weekday['尖峰時間']['非夏月']['單價']),
+        'weekday_off_peak_summer':float(weekday['離峰時間']['夏月']['單價']),
+        'weekday_off_peak_non_summer':float(weekday['離峰時間']['非夏月']['單價']),
+        'weekend_summer':float(weekend['夏月']['單價']),
+        'weekend_non_summer':float(weekend['非夏月']['單價']),
+        'weekday_peak_hours_summer':weekday['尖峰時間']['夏月']['時段'],
+        'weekday_peak_hours_non_summer':weekday['尖峰時間']['非夏月']['時段'],
+    }
+    rate_fields=('weekday_peak_summer','weekday_peak_non_summer','weekday_off_peak_summer',
+                 'weekday_off_peak_non_summer','weekend_summer','weekend_non_summer')
+    if not all(0<ev_facility[key]<100 for key in rate_fields):
+        raise ValueError('Taipower EV facility rates outside supported range')
+    return {'source':ELECTRICITY_URL,'effective_date':effective_date,'checked_at':now(),
+            'residential':residential,'ev_facility':ev_facility,
+            'summer_months':[6,7,8,9]}
+
+def electricity_prices():
+    return parse_electricity_prices(fetch(ELECTRICITY_URL))

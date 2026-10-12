@@ -4,11 +4,25 @@
 const valid=(x,min=0)=>Number.isFinite(x)&&x>=min;
 const sum=(...xs)=>xs.every(x=>x!==null&&Number.isFinite(x))?xs.reduce((a,b)=>a+b,0):null;
 const energy=(km,eff,rate,loss=0)=>valid(km)&&valid(eff,0.00001)&&valid(rate)&&valid(loss)&&loss<100?km/eff/(1-loss/100)*rate:null;
+function progressiveBill(kwh,tiers){let remaining=kwh,lower=0,total=0;for(const tier of tiers){const amount=tier.limit===null?remaining:Math.max(0,Math.min(remaining,tier.limit-lower));total+=amount*tier.rate;remaining-=amount;if(tier.limit!==null)lower=tier.limit;if(remaining<=0)break;}return total;}
+function householdMarginalRate(d){
+ const tariff=d.residentialTariff;
+ if(!tariff||!valid(d.homeMonthlyKwh)||!valid(d.day)||!valid(d.days)||!valid(d.evEff,.00001)||!valid(d.loss)||d.loss>=100||!valid(d.share))return d.home;
+ const monthlyHomeChargeKwh=d.day*d.days/d.evEff/(1-d.loss/100)*d.share/100;
+ if(monthlyHomeChargeKwh<=0)return d.home;
+ let annualIncrement=0;
+ for(let month=1;month<=12;month++){
+  const tiers=tariff[month>=6&&month<=9?'summer':'non_summer'];
+  if(!Array.isArray(tiers))return d.home;
+  annualIncrement+=progressiveBill(d.homeMonthlyKwh+monthlyHomeChargeKwh,tiers)-progressiveBill(d.homeMonthlyKwh,tiers);
+ }
+ return annualIncrement/(monthlyHomeChargeKwh*12);
+}
 function calculate(d){
  const km=valid(d.day)&&valid(d.days)&&d.days<=31?d.day*d.days*12:null;
  const shares=[d.share,d.fleetShare,d.fastShare];
  const mix=shares.every(x=>valid(x)&&x<=100)&&Math.abs(shares.reduce((a,b)=>a+b,0)-100)<1e-7;
- const rates=[d.home,d.fleetRate,d.fast];
+ const homeRate=householdMarginalRate(d),rates=[homeRate,d.fleetRate,d.fast];
  const rate=mix&&shares.every((s,i)=>s===0||valid(rates[i]))?shares.reduce((a,s,i)=>a+(s===0?0:s*rates[i]/100),0):null;
  const current=d.mode==='phev'?null:energy(km,d.eff,d.fuel);
  const hybrid=energy(km,d.hybridEff,d.hybridFuel);
@@ -38,9 +52,9 @@ function calculate(d){
  const totalSaving=sum(energySaving,maintenanceTaxSaving);
  const displayedAnnual=x=>Math.sign(x)*Math.round(Math.abs(x));
  const annualReport={energySaving,maintenanceTaxSaving,totalSaving,energyReduction:current>0&&ev!==null?energySaving/current*100:null,projectedEnergy:valid(d.projectionYears,1)&&energySaving!==null?displayedAnnual(energySaving)*d.projectionYears:null,projectedTotal:valid(d.projectionYears,1)&&totalSaving!==null?displayedAnnual(totalSaving)*d.projectionYears:null};
- return {schemaVersion:1,extensions:{},annualReport,trip,km,rate,current,hybrid,ev,hours,timeCost,grant,hybridGrant,evPhases:phase(grant),hybridPhases:phase(hybridGrant),evCapital:capital(d.evPrice),hybridCapital:capital(d.hybridPrice),evPayment:payment(d.evLoan),hybridPayment:payment(d.hybridLoan),evGeneral:payback(d.evPrice,grant,ev),hybridGeneral:payback(d.hybridPrice,hybridGrant,hybrid),evConservative:payback(d.evPrice,0,conservativeEv,evExtra),hybridConservative:payback(d.hybridPrice,0,hybrid,hybridExtra),basic:warranty(d.basicKm,d.basicYears),battery:warranty(d.batteryKm,d.batteryYears)};
+ return {schemaVersion:1,extensions:{},annualReport,trip,km,rate,homeRate,current,hybrid,ev,hours,timeCost,grant,hybridGrant,evPhases:phase(grant),hybridPhases:phase(hybridGrant),evCapital:capital(d.evPrice),hybridCapital:capital(d.hybridPrice),evPayment:payment(d.evLoan),hybridPayment:payment(d.hybridLoan),evGeneral:payback(d.evPrice,grant,ev),hybridGeneral:payback(d.hybridPrice,hybridGrant,hybrid),evConservative:payback(d.evPrice,0,conservativeEv,evExtra),hybridConservative:payback(d.hybridPrice,0,hybrid,hybridExtra),basic:warranty(d.basicKm,d.basicYears),battery:warranty(d.batteryKm,d.batteryYears)};
 }
-if(typeof module!=='undefined')module.exports={calculate,energy};
+if(typeof module!=='undefined')module.exports={calculate,energy,progressiveBill,householdMarginalRate};
 root.TaxiModel={calculate,energy};
 if(typeof document==='undefined')return;
 const $=id=>document.getElementById(id),form=$('form');
@@ -61,6 +75,7 @@ $('share').type='number';$('share').step='any';$('share').value=80;$('share').de
 ['eff','home','fast','evEff','loss','share'].forEach(id=>{if(Object.hasOwn(defaults,id)){$(id).value=defaults[id]??'';$(id).defaultValue=$(id).value;}});$('carName').value=root.TAXI_CONFIG?.ui.model||'我的計程車';$('carName').defaultValue=$('carName').value;
 $('currentType').querySelector('[value="gas"]').textContent='汽油／油電／輕油電';
 const advanced=document.createElement('details');advanced.id='taxiAdvanced';advanced.innerHTML='<summary>進階設定</summary><p class="note" id="taxiHelp">空白代表待確認，零代表你明確選擇不計入。金額皆為新臺幣。所有預設可修改。</p>';
+advanced.append(group('台電住宅電價自動估算',field('homeMonthlyKwh','不含本車的家中月用電量（自填）','','度/月',0,100000)+'<p class="note">輸入電費單月平均用電量，依最新住宅級距估算本車新增用電的邊際電價；留白則沿用上方手動電價。計算假設每月用電相同，全年按夏月 4 個月、非夏月 8 個月平均。資料僅在本機運算。</p>'));
 const settings=group('補助與核定',select('eligible','bZ4X 計程車補助資格（待確認）',eligibility)+field('evGrant','bZ4X 適用補助金額／級距（待確認）','','元')+select('hybridEligible','油電車補助資格（自行確認）',eligibility)+field('hybridGrant','油電級距試算',250000,'元')+field('fuelGrant','燃油級距試算',150000,'元')+field('electricTier','電動級距試算（非資格認定）',350000,'元')+field('firstPct','第一階段比例',70,'%',0,100)+field('firstMonth','第一階段預估入帳月（自填）','','月',0,120)+field('secondMonth','第二階段最早申請月',6,'月',6,120));
 advanced.append(settings);
 advanced.append(group('貸款與 bZ4X 參數',field('apr','貸款年利率（自填）','','%',0,100)+field('term','貸款期數（自填）','','月',1,600)+field('evPrice','bZ4X 購車總價',1280000,'元')+field('capacity','電池容量',74.7,'kWh',.1,300)+field('evPower','最大馬力',227,'PS',1,2000)+field('conservativeEff','保守情境實際效率（自填）','','km/度',.1,20)+field('hybridFuel','油電車實付油價（與原車不同時）',32.7,'元/L',0,200)));
@@ -78,11 +93,16 @@ $('error').hidden=true;
 $('calculator').querySelector('.results').hidden=true;
 $('battery').hidden=true;$('check').hidden=true;
 const result=document.createElement('div');result.className='results taxi-results';result.id='taxiResults';result.setAttribute('aria-live','polite');$('calculator').append(result);
+let electricityTariff=null;
+const tariffNotice=document.createElement('p');tariffNotice.className='note';tariffNotice.id='electricityTariffNotice';questions[5].append(tariffNotice);
+const tariffSource=document.createElement('a');tariffSource.href='https://www.taipower.com.tw/media/jx3fpc3g/電動車充換電設施電價.pdf';tariffSource.target='_blank';tariffSource.rel='noopener noreferrer';tariffSource.textContent='台電電動車充換電設施電價說明（PDF）';tariffNotice.after(tariffSource);
+const homeRateNote=document.createElement('p');homeRateNote.className='note';questions[5].querySelector('.fields').append(homeRateNote);
 const number=x=>x===null?'待確認':Number.isFinite(x)?new Intl.NumberFormat('zh-TW',{maximumFractionDigits:3}).format(x):'無法回本';
 const money=x=>x===null?'待確認':'NT$'+new Intl.NumberFormat('zh-TW',{maximumFractionDigits:0}).format(x);
 const years=x=>x===null?'待確認':x===Infinity?'無法回本（節省額 ≤ 0）':x===0?'無需回本（淨投入 ≤ 0）':x.toFixed(2)+' 年';
-function read(){const d={};form.querySelectorAll('input[type="number"]').forEach(e=>{const n=e.value.trim()===''?null:Number(e.value);const ok=n!==null&&Number.isFinite(n)&&n>=Number(e.min||0)&&(!e.max||n<=Number(e.max));e.setAttribute('aria-invalid',String(n!==null&&!ok));d[e.id]=ok?n:null;});d.mode=$('currentType').value;d.eligible=$('eligible').value;d.hybridEligible=$('hybridEligible').value;return d;}
+function read(){const d={};form.querySelectorAll('input[type="number"]').forEach(e=>{const n=e.value.trim()===''?null:Number(e.value);const ok=n!==null&&Number.isFinite(n)&&n>=Number(e.min||0)&&(!e.max||n<=Number(e.max));e.setAttribute('aria-invalid',String(n!==null&&!ok));d[e.id]=ok?n:null;});d.mode=$('currentType').value;d.eligible=$('eligible').value;d.hybridEligible=$('hybridEligible').value;d.residentialTariff=electricityTariff?.residential||null;return d;}
 function render(){const d=read(),r=calculate(d);$('km').value=r.km??'';const specs=document.querySelectorAll('.spec strong');[d.evPower,d.capacity,d.evEff,d.evPrice===null?null:d.evPrice/10000].forEach((v,i)=>{specs[i].firstChild.textContent=number(v)+' ';});const panel=(title,html)=>`<article class="panel"><h2>${title}</h2>${html}</article>`;
+homeRateNote.textContent=d.homeMonthlyKwh!==null&&d.residentialTariff?`台電住宅級距推估家充邊際電價：${number(r.homeRate)} 元/度（夏月與非夏月年平均）；公共快充與車隊電價仍依實付價格填寫。`:`家充手動電價：${number(r.homeRate)} 元/度；填入進階設定的家中月用電量後，可依台電住宅級距自動估算。`;
 const formula=s=>`<details class="formula-details"><summary>計算公式</summary><p class="note formula">${s}</p></details>`;
 const costCard=(label,cost,eff,rate,electric=false)=>`<div class="cost"><h3>${label}</h3><strong>${money(cost)}</strong><span>年能源費 · 每月 ${money(cost===null?null:cost/12)}</span>${formula(electric?`${number(r.km)} ÷ ${number(d.evEff)} ÷ (1 − ${number(d.loss)}%) × ${r.rate===null?'待確認':r.rate.toFixed(3)} 元/度`:`${number(r.km)} km ÷ ${eff??'待確認'} × ${rate??'待確認'} 元${d.mode==='ev'&&label==='現有車'?'/度':'/L'}`)}</div>`;
 const diff=c=>sum(r.current,c===null?null:-c);
@@ -109,10 +129,24 @@ document.dispatchEvent(new CustomEvent('taxi:render'));
 
 form.addEventListener('input',render);form.addEventListener('change',render);form.addEventListener('reset',()=>setTimeout(render,0));
 // Synchronize hybrid fuel price until the user explicitly chooses a separate price.
-let separateFuel=false;$('hybridFuel').addEventListener('input',()=>{separateFuel=true;render();});['fuel','grade'].forEach(id=>$(id).addEventListener('input',()=>{if(!separateFuel&&$('currentType').value!=='ev')$('hybridFuel').value=$('fuel').value;render();}));$('grade').addEventListener('change',()=>{if(!separateFuel)$('hybridFuel').value=$('fuel').value;render();});form.addEventListener('reset',()=>{separateFuel=false;});
+let separateFuel=false;if($('hybridFuel').value.trim()===''&&$('grade').value!=='manual'&&Number.isFinite(Number($('fuel').value)))$('hybridFuel').value=$('fuel').value;$('hybridFuel').addEventListener('input',()=>{separateFuel=true;render();});['fuel','grade'].forEach(id=>$(id).addEventListener('input',()=>{if(!separateFuel&&$('currentType').value!=='ev')$('hybridFuel').value=$('fuel').value;render();}));$('grade').addEventListener('change',()=>{if(!separateFuel)$('hybridFuel').value=$('fuel').value;render();});form.addEventListener('reset',()=>{separateFuel=false;});
 $('loadCar').addEventListener('click',render);
 render();
+fetch('/api/electricity-rates',{cache:'no-store'}).then(response=>{if(!response.ok)throw new Error('electricity rates unavailable');return response.json();}).then(data=>{if(data&&data.residential&&data.ev_facility){electricityTariff=data;tariffNotice.textContent=`台電費率表生效日：${data.effective_date}；最近檢查：${data.checked_at}。家用級距自動更新；公共快充價格依業者而異，仍請填實付價。台電充換電設施費率僅適用符合契約條件的設施，不等同充電站零售價。`;render();}else tariffNotice.textContent='台電電價資料尚未載入；家充沿用手動費率，請查看資料更新狀態。';}).catch(()=>{tariffNotice.textContent='台電電價資料尚未載入；家充沿用手動費率，請查看資料更新狀態。';});
 Object.entries(root.TAXI_CONFIG?.oilPrices||{}).forEach(([grade,price])=>{if(Number.isFinite(price)&&price>=0){const option=[...$('grade').options].find(o=>o.value===grade);if(option)option.textContent=option.textContent.replace(/[\d.]+ 元\/L/,price+' 元/L');}});
 configuredOilPrice();$('grade').addEventListener('change',configuredOilPrice);
+let oilPriceEdited=false;$('fuel').addEventListener('input',event=>{if(event.isTrusted)oilPriceEdited=true;});
+fetch('/api/rates',{cache:'no-store'}).then(response=>{if(!response.ok)throw new Error('oil rates unavailable');return response.json();}).then(data=>{
+ if(!data||!data.prices)return;
+ const names={'92':'92 無鉛','95':'95 無鉛','98':'98 無鉛',diesel:'超級柴油'};
+ for(const [grade,price] of Object.entries(data.prices)){
+  const value=Number(price),option=[...$('grade').options].find(o=>o.value===grade);
+  if(!Number.isFinite(value)||value<0||!option)continue;
+  option.textContent=`${names[grade]} · ${value} 元/L`;
+ }
+ const grade=$('grade').value,value=Number(data.prices[grade]);
+ if(grade!=='manual'&&$('currentType').value!=='ev'&&!oilPriceEdited&&Number.isFinite(value)&&value>=0){$('fuel').value=value;$('fuel').defaultValue=value;$('fuel').dispatchEvent(new Event('input',{bubbles:true}));}
+ if(grade!=='manual'&&Number.isFinite(value))$('fuelNote').textContent=`中油 ${names[grade]} ${value.toFixed(1)} 元/L · ${data.effective_label} 生效；最近取得 ${data.checked_at}。站點優惠另計。`;
+}).catch(()=>{});
 })(typeof globalThis==='undefined'?this:globalThis);
 
