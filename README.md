@@ -103,15 +103,67 @@ node tests/google-map.test.cjs
 
 瀏覽器測試需安裝 Playwright 與可用的 Chromium／Edge。Google Maps mock 測試不代表正式 API 金鑰、帳務、網域限制或 LINE WebView 已驗證；PostgreSQL 與雲端部署也需在目標環境另行確認。
 
-## 主要資料來源
+## 參考資料
 
-- [Toyota bZ4X 規格](https://www.toyota.com.tw/showroom/bZ4X/fullsepc.aspx)與[原廠保證](https://www.toyota.com.tw/electric_guarantee.aspx)
-- [能源署車輛油耗指南](https://ea03.moeaea.gov.tw/e0416/oil_guide.aspx)
-- [Yahoo 汽車台灣車款目錄](https://autos.yahoo.com.tw/new-cars/)；歷年項目保留原始來源並標示非原廠資料
-- [中油牌價資料](https://www.cpc.com.tw/GetOilPriceJson.aspx?type=TodayOilPriceString)
-- [台電公開電價資料](https://service.taipower.com.tw/data/opendata/apply/file/d007008/001.json)
-- [Google Maps Routes 文件](https://developers.google.com/maps/documentation/routes)
-- [主管機關補助規定](https://motclaw.motc.gov.tw/webMotcLaw2018/Law/ArticleContent?LawID=E0196009&type=-1)；適用資格與年度金額仍以公告及核定結果為準
+以下資料涵蓋專案需求、試算參數、公開資料來源及技術架構設計。車價、費率、規格與補助條件可能更新，實際使用時應回查原始來源及適用日期。
+
+### 專案原始資料
+
+[1] TOYO TOMO 專案提供者，〈TOYO TOMO AI 應用方法說明〉，DOCX，專案需求與服務構想文件。
+
+[2] TOYO TOMO 專案提供者，〈TOYOTOMO〉，PDF，提案與服務設計資料。
+
+[3] TOYO TOMO 專案提供者，〈TOYO TOMO n8n 工作流程〉，JSON 匯出檔，對話分類及流程設計參考。
+
+[4] TOYO TOMO 專案程式文件： [TAXI.md](TAXI.md)、[HISTORY.md](HISTORY.md)、[AI應用方法報告.md](AI應用方法報告.md)、[TOYO_TOMO_AI_應用方法整理.md](TOYO_TOMO_AI_應用方法整理.md)及本儲存庫程式碼。用於記錄試算假設、資料來源、功能邊界和實作狀態。
+
+### 車款、能源價格與法規資料
+
+[5] 和泰汽車，〈TOYOTA bZ4X 車款規格〉，[官方規格頁](https://www.toyota.com.tw/showroom/bZ4X/fullsepc.aspx)，查閱日期：2026-10-14。
+
+[6] 和泰汽車，〈電動車原廠保證〉，[官方保證說明](https://www.toyota.com.tw/electric_guarantee.aspx)，查閱日期：2026-10-14。
+
+[7] 經濟部能源署，〈車輛油耗指南〉，[官方資料庫](https://ea03.moeaea.gov.tw/e0416/oil_guide.aspx)，查閱日期：2026-10-14。
+
+[8] Yahoo 奇摩汽車，〈新車車款目錄〉，[車款資料頁](https://autos.yahoo.com.tw/new-cars/)，查閱日期：2026-10-14。作為車款目錄參考；歷年車型資料仍應以各車型原始來源及專案標示為準。
+
+[9] 台灣中油股份有限公司，〈今日油品牌價資料〉，[牌價 JSON](https://www.cpc.com.tw/GetOilPriceJson.aspx?type=TodayOilPriceString)，查閱日期：2026-10-14。
+
+[10] 台灣電力股份有限公司，〈電價公開資料〉，[公開資料 JSON](https://service.taipower.com.tw/data/opendata/apply/file/d007008/001.json)，查閱日期：2026-10-14。
+
+[11] 台灣電力股份有限公司，〈電動車充換電設施電價〉，[費率文件 PDF](https://www.taipower.com.tw/media/jx3fpc3g/電動車充換電設施電價.pdf)，查閱日期：2026-10-14。
+
+[12] 交通部，[相關補助法規與公告](https://motclaw.motc.gov.tw/webMotcLaw2018/Law/ArticleContent?LawID=E0196009&type=-1)，查閱日期：2026-10-14。補助資格、金額及適用期間以主管機關最新公告和核定結果為準。
+
+### AI、對話服務與地圖
+
+[13] OpenAI，〈API Overview〉，[OpenAI API 文件](https://platform.openai.com/docs/overview)，查閱日期：2026-10-14。專案的模型選用依專案提供者確認為 OpenAI API 與 GPT-6 Luna；此選型記錄不代表本文件獨立驗證模型供應或正式環境串接。
+
+[14] n8n，〈Documentation〉，[n8n 官方文件](https://docs.n8n.io/)，查閱日期：2026-10-14。作為工作流程自動化及服務串接設計參考。
+
+[15] LINE Developers，〈LIFF Documentation〉，[LIFF 官方文件](https://developers.line.biz/en/docs/liff/)，查閱日期：2026-10-14。LIFF 全名為 LINE Front-end Framework，用於在 LINE 環境中提供網頁應用程式。
+
+[16] LINE Developers，〈Messaging API Reference〉，[Messaging API 官方參考文件](https://developers.line.biz/en/reference/messaging-api/)，查閱日期：2026-10-14。作為 LINE 訊息收發及 Webhook 串接設計參考。
+
+[17] Google for Developers，〈Routes API〉，[Google Maps Platform 文件](https://developers.google.com/maps/documentation/routes)，查閱日期：2026-10-14。用於路線距離與時間資料服務設計。
+
+[18] Google for Developers，〈Places API〉，[Google Maps Platform 文件](https://developers.google.com/maps/documentation/places/web-service/overview)，查閱日期：2026-10-14。用於地點及充電站搜尋服務設計。
+
+[19] Google for Developers，〈Load the Maps JavaScript API〉，[API 載入文件](https://developers.google.com/maps/documentation/javascript/load-maps-js-api)；〈Set up the Maps JavaScript API〉，[API 金鑰設定文件](https://developers.google.com/maps/documentation/javascript/get-api-key)，查閱日期：2026-10-14。
+
+[20] Google for Developers，〈Markers overview〉，[Advanced Markers 文件](https://developers.google.com/maps/documentation/javascript/advanced-markers/overview)，查閱日期：2026-10-14。
+
+### 部署、資料庫與前端技術
+
+[21] Zeabur，〈Private Networking〉，[服務私有網路文件](https://zeabur.com/docs/zh-TW/deploy/networking/private-networking)；〈Custom Docker Image〉，[Docker 部署文件](https://zeabur.com/docs/en-US/deploy/methods/custom-docker-image)，查閱日期：2026-10-14。n8n 部署於 Zeabur VM 服務是本專案的架構規劃。
+
+[22] Docker，〈Run containers〉，[Docker Engine 文件](https://docs.docker.com/engine/containers/run/)；〈Port publishing〉，[網路連接埠文件](https://docs.docker.com/engine/network/port-publishing)，查閱日期：2026-10-14。作為網站與 PostgreSQL 容器化、網路隔離及持久化設計參考。
+
+[23] PostgreSQL Global Development Group，〈PostgreSQL Documentation〉，[官方文件](https://www.postgresql.org/docs/current/)，查閱日期：2026-10-14。作為關聯式資料儲存設計參考。
+
+[24] Cloudflare，〈Cloudflare Tunnel〉，[建立 Tunnel 文件](https://developers.cloudflare.com/tunnel/get-started/)；〈Routing〉，[主機名稱路由文件](https://developers.cloudflare.com/tunnel/concepts/routing/)，查閱日期：2026-10-14。作為透過 Cloudflare Tunnel 將受控網域流量路由至後端服務的架構參考。
+
+[25] MathJax，〈Combined Components〉，[元件文件](https://docs.mathjax.org/en/v3.2/web/components/combined.html)；〈Typesetting and Converting Mathematics〉，[動態排版文件](https://docs.mathjax.org/en/v3.2/web/typeset.html)，查閱日期：2026-10-14。用於網頁試算公式的數學式顯示。
 
 ## 安全與資料使用
 
